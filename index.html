@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="TDL全制覇">
+<meta name="theme-color" content="#ff5c9d">
 <title>10/18 ディズニーランド全制覇</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -323,10 +327,20 @@ const plan=[
  ["20:00",[["ホーンテッドマンション"],["ペニーアーケード"]]]
 ];
 const KEY="tdl1018-done-v2";
-let done={};
-try{done=JSON.parse(localStorage.getItem(KEY)||"{}")||{}}catch(e){done={}}
+let done={},doneAt=0;
+// --- multi-backend local persistence (localStorage + cookie + IndexedDB) ---
+const CK="tdl1018v2";
+function readLS(){try{const r=localStorage.getItem(KEY+"-rec");if(r){const o=JSON.parse(r);if(o&&o.d)return o;}const old=localStorage.getItem(KEY);if(old)return{d:JSON.parse(old)||{},at:1};}catch(e){}return null;}
+function readCK(){try{const m=document.cookie.split("; ").find(x=>x.startsWith(CK+"="));if(m){const o=JSON.parse(decodeURIComponent(m.slice(CK.length+1)));if(o&&o.d)return o;}}catch(e){}return null;}
+function idb(){return new Promise((res,rej)=>{try{const q=indexedDB.open("tdl1018",1);q.onupgradeneeded=()=>q.result.createObjectStore("kv");q.onsuccess=()=>res(q.result);q.onerror=()=>rej(q.error);}catch(e){rej(e)}});}
+function readIDB(){return idb().then(db=>new Promise(res=>{try{const r=db.transaction("kv").objectStore("kv").get("rec");r.onsuccess=()=>res(r.result||null);r.onerror=()=>res(null);}catch(e){res(null)}})).catch(()=>null);}
+function writeAll(){const rec={d:done,at:doneAt};const js=JSON.stringify(rec);
+  try{localStorage.setItem(KEY+"-rec",js);localStorage.setItem(KEY,JSON.stringify(done));}catch(e){}
+  try{document.cookie=CK+"="+encodeURIComponent(js)+"; max-age=5184000; path=/; SameSite=Lax"+(location.protocol==="https:"?"; Secure":"");}catch(e){}
+  idb().then(db=>{try{db.transaction("kv","readwrite").objectStore("kv").put(rec,"rec");}catch(e){}}).catch(()=>{});}
+{const cands=[readLS(),readCK()].filter(Boolean).sort((a,b)=>(b.at||0)-(a.at||0));if(cands[0]){done=cands[0].d||{};doneAt=cands[0].at||0;}}
 let cloudRef=null,cloudT=null;
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(done))}catch(e){}
+const save=()=>{doneAt=Date.now();writeAll();
   if(cloudRef){clearTimeout(cloudT);cloudT=setTimeout(()=>{cloudRef.set({done:JSON.stringify(done),at:Date.now()}).then(()=>setSaveNote("cloud")).catch(()=>setSaveNote("local"));},400);}};
 function setSaveNote(k){const el=document.getElementById("savenote");if(!el)return;
   el.classList.toggle("ok",k==="cloud");
@@ -338,7 +352,7 @@ function applyDone(){document.querySelectorAll(".item").forEach(b=>{const on=!!d
   const ref=db.collection("data/users/"+id).doc("progress");
   const snap=await ref.get();
   if(snap.exists){const d=snap.data();let cd={};try{cd=JSON.parse(d.done||"{}")||{}}catch(e){}
-    const merged=Object.assign({},cd,done);done=merged;try{localStorage.setItem(KEY,JSON.stringify(done))}catch(e){}
+    const merged=Object.assign({},cd,done);done=merged;writeAll();
     applyDone();const was=booted;booted=false;update();booted=was;}
   cloudRef=ref;setSaveNote("cloud");
   if(!snap.exists||Object.keys(done).length)save();
@@ -1486,6 +1500,8 @@ document.getElementById("pclose").onclick=()=>{document.getElementById("party").
 document.getElementById("replay").addEventListener("click",celebrate);
 document.addEventListener("keydown",e=>{if(e.key==="Escape"&&document.getElementById("party").classList.contains("show"))document.getElementById("pclose").click();});
 update();booted=true;
+readIDB().then(r=>{if(r&&r.d&&(r.at||0)>doneAt){done=r.d;doneAt=r.at;applyDone();const was=booted;booted=false;update();booted=was;writeAll();}else if(doneAt)writeAll();});
+addEventListener("pagehide",writeAll);document.addEventListener("visibilitychange",()=>{if(document.visibilityState==="hidden")writeAll();});
 if(/\bLine\//i.test(navigator.userAgent))document.getElementById("linenote").classList.add("show");
 runIntro();
 </script>
